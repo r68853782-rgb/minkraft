@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Block World 3D</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#87ceeb;font-family:system-ui,Arial;color:#fff}canvas{display:block;width:100%;height:100%;touch-action:none}
+#hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 2px 3px #000}#top{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:10px;align-items:start}
+.panel{background:#14202ddd;border:1px solid #ffffff55;border-radius:12px;padding:10px 12px;backdrop-filter:blur(4px)}#brand{font-size:18px;font-weight:900;letter-spacing:1px}#help{font-size:12px;line-height:1.5;margin-top:3px}#stats{text-align:right;font-size:12px}
+#aim{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:24px}
+#bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;flex-direction:column;gap:7px;width:95%;max-width:600px}
+#slots{display:flex;gap:5px;padding:7px;border-radius:12px;background:#14202ddd;border:1px solid #ffffff55;pointer-events:auto}.slot{width:48px;height:48px;border:2px solid #ffffff55;border-radius:8px;background:#344254;display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:22px;cursor:pointer}.slot small{font-size:9px}.slot.sel{border:3px solid #ffe36b;background:#536078}
+#msg{font-size:12px;background:#14202ddd;border-radius:8px;padding:6px 10px;text-align:center}
+#cover{position:fixed;z-index:5;inset:0;display:grid;place-items:center;background:#061321b8;padding:18px}#cover .card{max-width:490px;padding:25px;text-align:center;border-radius:18px;background:#152332f5;border:1px solid #ffffff55}#cover h1{margin:0 0 8px;font-size:32px}#cover p{line-height:1.5;color:#e1edf7}button{border:0;border-radius:10px;padding:12px 18px;background:#a5e65a;color:#15240b;font-weight:900;font-size:15px;cursor:pointer}
+#mobile{display:none;position:fixed;bottom:105px;left:10px;right:10px;justify-content:space-between;pointer-events:none}.pad{display:grid;grid-template-columns:42px 42px 42px;gap:4px;pointer-events:auto}.pad button,#actions button{padding:9px 0;background:#14202ddd;color:white;border:1px solid #ffffff55}.pad span{width:42px}#actions{display:flex;gap:5px;align-items:end;pointer-events:auto}#actions button{padding:10px 8px;font-size:12px}
+@media(max-width:700px){#help{display:none}#brand{font-size:15px}.slot{width:40px;height:42px;font-size:18px}#slots{gap:3px;padding:5px}#mobile{display:flex}#bottom{bottom:8px}#stats{font-size:10px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+ <div id="top"><div class="panel"><div id="brand">🌿 BLOCK WORLD 3D</div><div id="help">WASD: move · Mouse: look · Space: jump · Left click: mine · Right click: place · 1–6: block select</div></div><div class="panel" id="stats">World loading…</div></div>
+ <div id="aim">+</div><div id="bottom"><div id="slots"></div><div id="msg">Duniya explore karo, blocks mine karo aur build karo!</div></div>
+</div>
+<div id="mobile"><div class="pad"><span></span><button data-m="f">▲</button><span></span><button data-m="l">◀</button><button data-m="b">▼</button><button data-m="r">▶</button></div><div id="actions"><button id="jump">JUMP</button><button id="mine">MINE</button><button id="place">BUILD</button></div></div>
+<div id="cover"><div class="card"><h1>🌿 Block World 3D</h1><p>Apni 3D block duniya banao! Is game mein mining, building, inventory aur ghoomte animals hain.</p><p><b>Computer:</b> Play dabao. WASD se chalo, mouse se dekho, Space se jump, left click se mine aur right click se block lagao.</p><p><b>Mobile:</b> Neeche diye gaye controls use karo aur screen drag karke dekho.</p><button id="play">PLAY GAME</button></div></div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+const canvas=document.querySelector('#game'), msg=document.querySelector('#msg');
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x87ceeb);scene.fog=new THREE.Fog(0x87ceeb,20,62);
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,.1,500);
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+scene.add(new THREE.HemisphereLight(0xe0f5ff,0x64704a,2));
+const sun=new THREE.DirectionalLight(0xfff0cf,2);sun.position.set(-15,25,12);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);scene.add(sun);
+const mat={
+ grass:new THREE.MeshLambertMaterial({color:0x58ad43}),dirt:new THREE.MeshLambertMaterial({color:0x8b5a35}),
+ stone:new THREE.MeshLambertMaterial({color:0x858b91}),wood:new THREE.MeshLambertMaterial({color:0x9a6737}),
+ sand:new THREE.MeshLambertMaterial({color:0xd9c17b}),leaves:new THREE.MeshLambertMaterial({color:0x2f873e})
+};
+const names=Object.keys(mat),icons={grass:'🟩',dirt:'🟫',stone:'⬜',wood:'🪵',sand:'🟨',leaves:'🌿'};
+const inventory={grass:30,dirt:20,stone:15,wood:12,sand:10,leaves:12}, blocks=new Map(),meshes=new Map(),animals=[];
+let selected='grass',started=false,locked=false,drag=false,lastX=0,lastY=0;
+const cube=new THREE.BoxGeometry(1,1,1), k=(x,y,z)=>`${x},${y},${z}`;
+function addBlock(x,y,z,type){const id=k(x,y,z);if(blocks.has(id))return false;const m=new THREE.Mesh(cube,mat[type]||mat.grass);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;m.userData={x,y,z,type};scene.add(m);blocks.set(id,{type,mesh:m});meshes.set(id,m);return true}
+function removeBlock(x,y,z){const id=k(x,y,z),b=blocks.get(id);if(!b)return null;scene.remove(b.mesh);blocks.delete(id);meshes.delete(id);return b.type}
+function heightAt(x,z){return Math.floor(1+Math.max(0,2.5-Math.sqrt(x*x+z*z)/5))}
+for(let x=-14;x<=14;x++)for(let z=-14;z<=14;z++){if(Math.hypot(x,z)>15)continue;let h=heightAt(x,z);for(let y=-2;y<h;y++)addBlock(x,y,z,y===h-1?'grass':y<-1?'stone':'dirt');if(Math.hypot(x,z)>11&&Math.random()<.18)addBlock(x,h,z,'sand')}
+function makeTree(x,z){let y=heightAt(x,z);for(let i=0;i<3;i++)addBlock(x,y+i,z,'wood');for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)for(let dy=2;dy<=4;dy++)if(Math.abs(dx)+Math.abs(dz)+(dy===4?1:0)<5&&!(dx===0&&dz===0&&dy<3))addBlock(x+dx,y+dy,z+dz,'leaves')}
+[[-7,-5],[7,-6],[-9,4],[8,6],[2,-10]].forEach(p=>makeTree(...p));
+function animal(x,z,color){const g=new THREE.Group(),body=new THREE.MeshLambertMaterial({color}),dark=new THREE.MeshLambertMaterial({color:0x594633}),face=new THREE.MeshLambertMaterial({color:0xe9d6bd});function part(w,h,d,m,px,py,pz){let o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(px,py,pz);o.castShadow=true;g.add(o)}part(.82,.5,.48,body,0,.55,0);part(.34,.35,.34,body,0,.82,.3);part(.13,.12,.06,dark,-.09,.86,.48);part(.13,.12,.06,dark,.09,.86,.48);for(let px of [-.25,.25])for(let pz of [-.14,.14])part(.13,.35,.13,dark,px,.2,pz);g.position.set(x,heightAt(Math.round(x),Math.round(z)),z);scene.add(g);animals.push({g,dir:Math.random()*6.28,t:Math.random()*3,s:.35+Math.random()*.4})}
+animal(-3,2,0xf4f0dc);animal(4,3,0xc87a43);animal(-5,7,0xeeeeee);animal(6,-2,0xb77742);
+const player={pos:new THREE.Vector3(0,heightAt(0,0)+2,5),vel:new THREE.Vector3(),yaw:0,pitch:0,onGround:false},keys={},touchKeys={};
+function renderSlots(){const el=document.querySelector('#slots');el.innerHTML='';names.forEach((n,i)=>{let d=document.createElement('div');d.className='slot'+(n===selected?' sel':'');d.innerHTML=icons[n]+'<small>'+(i+1)+' · '+inventory[n]+'</small>';d.title=n;d.onclick=()=>{selected=n;renderSlots();stats()};el.appendChild(d)})}
+function say(t){msg.textContent=t;clearTimeout(say.t);say.t=setTimeout(()=>msg.textContent='Duniya explore karo, blocks mine karo aur build karo!',2500)}
+function stats(){document.querySelector('#stats').innerHTML=`Block: <b>${selected}</b><br>Quantity: ${inventory[selected]}<br>Animals: ${animals.length}`}
+renderSlots();stats();
+const ray=new THREE.Raycaster();ray.far=6;
+function target(){ray.setFromCamera(new THREE.Vector2(0,0),camera);return ray.intersectObjects([...meshes.values()],false)[0]}
+function mine(){let h=target();if(!h){say('Pehle kisi block par aim karo.');return}let p=h.object.userData,t=removeBlock(p.x,p.y,p.z);if(t){inventory[t]++;renderSlots();stats();say(t+' block collect hua!')}}
+function place(){let h=target();if(!h){say('Block ki side par aim karo.');return}if(inventory[selected]<1){say('Is block ka stock khatam hai.');return}let p=h.object.userData,n=h.face.normal.clone().transformDirection(h.object.matrixWorld),x=Math.round(p.x+n.x),y=Math.round(p.y+n.y),z=Math.round(p.z+n.z);if(Math.abs(x-player.pos.x)<.8&&Math.abs(z-player.pos.z)<.8&&y>=player.pos.y-1&&y<=player.pos.y+1){say('Block lagane ke liye thoda peeche jao.');return}if(addBlock(x,y,z,selected)){inventory[selected]--;renderSlots();stats();say(selected+' block lag gaya!')}else say('Wahan pehle se block hai.')}
+document.addEventListener('keydown',e=>{keys[e.code]=true;if(/^Digit[1-6]$/.test(e.code)){selected=names[+e.code.slice(5)-1];renderSlots();stats()}if(e.code==='Space')e.preventDefault()});
+document.addEventListener('keyup',e=>keys[e.code]=false);document.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('click',()=>{if(started&&innerWidth>700&&canvas.requestPointerLock)canvas.requestPointerLock()});
+document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===canvas);
+document.addEventListener('mousemove',e=>{if(locked){player.yaw-=e.movementX*.0022;player.pitch=Math.max(-1.45,Math.min(1.45,player.pitch-e.movementY*.0022))}});
+canvas.addEventListener('mousedown',e=>{if(started){if(e.button===0)mine();if(e.button===2)place()}});
+canvas.addEventListener('touchstart',e=>{if(e.touches.length){drag=true;lastX=e.touches[0].clientX;lastY=e.touches[0].clientY}},{passive:true});
+canvas.addEventListener('touchmove',e=>{if(!drag||!e.touches.length)return;let t=e.touches[0];player.yaw-=(t.clientX-lastX)*.006;player.pitch=Math.max(-1.4,Math.min(1.4,player.pitch-(t.clientY-lastY)*.006));lastX=t.clientX;lastY=t.clientY},{passive:true});
+canvas.addEventListener('touchend',()=>drag=false);
+document.querySelector('#play').onclick=()=>{started=true;document.querySelector('#cover').style.display='none';if(innerWidth>700&&canvas.requestPointerLock)canvas.requestPointerLock();say('Shuru karo! Mazedaar duniya banao.')};
+document.querySelectorAll('[data-m]').forEach(b=>{let v=b.dataset.m;b.addEventListener('pointerdown',e=>{e.preventDefault();touchKeys[v]=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>touchKeys[v]=false))});
+document.querySelector('#jump').onclick=()=>{if(player.onGround){player.vel.y=7;player.onGround=false}};document.querySelector('#mine').onclick=mine;document.querySelector('#place').onclick=place;
+const clock=new THREE.Clock();
+function frame(){requestAnimationFrame(frame);let dt=Math.min(clock.getDelta(),.04);if(started){
+ const f=new THREE.Vector3(-Math.sin(player.yaw),0,-Math.cos(player.yaw)),r=new THREE.Vector3(Math.cos(player.yaw),0,-Math.sin(player.yaw)),v=new THREE.Vector3();
+ if(keys.KeyW||keys.ArrowUp||touchKeys.f)v.add(f);if(keys.KeyS||keys.ArrowDown||touchKeys.b)v.sub(f);if(keys.KeyD||keys.ArrowRight||touchKeys.r)v.add(r);if(keys.KeyA||keys.ArrowLeft||touchKeys.l)v.sub(r);if(v.lengthSq())v.normalize().multiplyScalar(5);
+ player.pos.x=THREE.MathUtils.clamp(player.pos.x+v.x*dt,-14,14);player.pos.z=THREE.MathUtils.clamp(player.pos.z+v.z*dt,-14,14);
+ player.vel.y-=18*dt;player.pos.y+=player.vel.y*dt;let floor=heightAt(Math.round(player.pos.x),Math.round(player.pos.z))+1.72;if(player.pos.y<floor){player.pos.y=floor;player.vel.y=0;player.onGround=true}else player.onGround=false;if(keys.Space&&player.onGround){player.vel.y=7;player.onGround=false}
+ camera.position.copy(player.pos);camera.rotation.order='YXZ';camera.rotation.y=player.yaw;camera.rotation.x=player.pitch;
+ for(let a of animals){a.t-=dt;if(a.t<=0){a.dir+=(Math.random()-.5)*2.5;a.t=1+Math.random()*3}let x=a.g.position.x+Math.sin(a.dir)*a.s*dt,z=a.g.position.z+Math.cos(a.dir)*a.s*dt;if(Math.abs(x)<13&&Math.abs(z)<13){a.g.position.x=x;a.g.position.z=z;a.g.position.y=heightAt(Math.round(x),Math.round(z));a.g.rotation.y=a.dir}}
+ }renderer.render(scene,camera)}
+frame();addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2))});
+</script>
+</body>
+</html>
